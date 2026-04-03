@@ -26,6 +26,10 @@ class BulletJournalGridView @JvmOverloads constructor(
     private val colHeaders = mutableListOf<String>()
     private val rowHeaders = mutableListOf<String>()
 
+    // Selection
+    private var selectedRow = -1
+    private var selectedCol = -1
+
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = Color.WHITE
@@ -49,26 +53,33 @@ class BulletJournalGridView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    private val pressPaint = Paint().apply {
-        color = Color.parseColor("#80FFFFFF") // brighter for press feedback
+    private val selectionPaint = Paint().apply {
+        color = Color.parseColor("#80FFFFFF")  // Stronger highlight for selected row/column
         style = Paint.Style.FILL
     }
 
-    // Drag state
+    private val pressPaint = Paint().apply {
+        color = Color.parseColor("#60FFFFFF")
+        style = Paint.Style.FILL
+    }
+
+    // Touch handling
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
+
     private var startX = 0f
     private var startY = 0f
-    private var isDragging = false
-    private var dragType = 0 // 0=none, 1=row, 2=column
-    private var draggedIndex = -1
-    private var highlightIndex = -1
-
-    // Tap state
+    private var downTime = 0L
     private var downRow = -1
     private var downCol = -1
-    private var isPotentialTap = false
+    private var downHeaderType = 0 // 0=none, 1=row header, 2=col header
 
-    // Press highlight
+    // Drag state
+    private var isDragging = false
+    private var dragType = 0 // 1=row, 2=column
+    private var draggedIndex = -1
+
+    // Press feedback
     private var pressedRow = -1
     private var pressedCol = -1
 
@@ -103,18 +114,17 @@ class BulletJournalGridView @JvmOverloads constructor(
         val cs = cellSizeDp * d
         val hs = headerSizeDp * d
 
-        // Drag highlight (row/column)
-        if (highlightIndex >= 0) {
-            if (dragType == 1) {
-                val top = hs + highlightIndex * cs
-                canvas.drawRect(0f, top, width.toFloat(), top + cs, highlightPaint)
-            } else if (dragType == 2) {
-                val left = hs + highlightIndex * cs
-                canvas.drawRect(left, 0f, left + cs, height.toFloat(), highlightPaint)
-            }
+        // Selection highlight (full row or column)
+        if (selectedRow >= 0) {
+            val top = hs + selectedRow * cs
+            canvas.drawRect(0f, top, width.toFloat(), top + cs, selectionPaint)
+        }
+        if (selectedCol >= 0) {
+            val left = hs + selectedCol * cs
+            canvas.drawRect(left, 0f, left + cs, height.toFloat(), selectionPaint)
         }
 
-        // Press highlight (cell)
+        // Press highlight (temporary cell press)
         if (pressedRow >= 0 && pressedCol >= 0) {
             val left = hs + pressedCol * cs
             val top = hs + pressedRow * cs
@@ -131,7 +141,7 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.restore()
         }
 
-        // Rows + cells
+        // Row headers + cells
         for (r in 0 until numRows) {
             val y = hs + r * cs + cs / 2
             canvas.drawText(rowHeaders[r], hs / 2, y + headerPaint.textSize / 3, headerPaint)
@@ -152,9 +162,6 @@ class BulletJournalGridView @JvmOverloads constructor(
         }
     }
 
-    // Add this to your class properties
-    private var downTime = 0L
-
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val d = resources.displayMetrics.density
         val cs = cellSizeDp * d
@@ -168,26 +175,29 @@ class BulletJournalGridView @JvmOverloads constructor(
                 startX = touchX
                 startY = touchY
                 downTime = System.currentTimeMillis()
-                isPotentialTap = true
-                isDragging = false
-                dragType = 0
 
-                // Grid Cell Detection
+                pressedRow = -1
+                pressedCol = -1
+                isDragging = false
+                downHeaderType = 0
+
+                // Determine what was touched
                 if (touchX > hs && touchY > hs) {
-                    downCol = ((touchX - hs) / cs).toInt()
-                    downRow = ((touchY - hs) / cs).toInt()
+                    // Grid cell
+                    downCol = ((touchX - hs) / cs).toInt().coerceIn(0, numCols - 1)
+                    downRow = ((touchY - hs) / cs).toInt().coerceIn(0, numRows - 1)
                     pressedRow = downRow
                     pressedCol = downCol
-                } else {
-                    // Header Detection
-                    if (touchY < hs && touchX > hs) {
-                        draggedIndex = ((touchX - hs) / cs).toInt()
-                        dragType = 2
-                    } else if (touchX < hs && touchY > hs) {
-                        draggedIndex = ((touchY - hs) / cs).toInt()
-                        dragType = 1
-                    }
+                } else if (touchY < hs && touchX > hs) {
+                    // Column header
+                    downCol = ((touchX - hs) / cs).toInt().coerceIn(0, numCols - 1)
+                    downHeaderType = 2
+                } else if (touchX < hs && touchY > hs) {
+                    // Row header
+                    downRow = ((touchY - hs) / cs).toInt().coerceIn(0, numRows - 1)
+                    downHeaderType = 1
                 }
+
                 invalidate()
                 return true
             }
@@ -196,36 +206,25 @@ class BulletJournalGridView @JvmOverloads constructor(
                 val dx = abs(touchX - startX)
                 val dy = abs(touchY - startY)
 
-                if (dx > touchSlop || dy > touchSlop) {
-                    // Immediately kill the tap potential
-                    isPotentialTap = false
-                    pressedRow = -1
-                    pressedCol = -1
-
-                    if (dragType == 0) {
-                        // Hand off to ScrollView
-                        parent.requestDisallowInterceptTouchEvent(false)
-                        invalidate()
-                        return false
-                    } else {
-                        isDragging = true
-                        parent.requestDisallowInterceptTouchEvent(true)
-                    }
+                if (isDragging) {
+                    handleDrag(touchX, touchY, hs, cs)
+                    return true
                 }
 
-                // Standard Drag/Swap Logic
-                if (isDragging) {
-                    val target = if (dragType == 1) {
-                        ((touchY - hs + cs / 2) / cs).toInt().coerceIn(0, numRows - 1)
-                    } else {
-                        ((touchX - hs + cs / 2) / cs).toInt().coerceIn(0, numCols - 1)
-                    }
+                // Start dragging only after long press + movement on a selected header
+                if (downHeaderType != 0 && (dx > touchSlop || dy > touchSlop)) {
+                    val isSelected = if (downHeaderType == 1) downRow == selectedRow else downCol == selectedCol
 
-                    if (target != draggedIndex) {
-                        if (dragType == 1) swapRows(draggedIndex, target)
-                        else swapColumns(draggedIndex, target)
-                        draggedIndex = target
-                        invalidate()
+                    if (isSelected) {
+                        isDragging = true
+                        dragType = downHeaderType
+                        draggedIndex = if (dragType == 1) downRow else downCol
+                        parent.requestDisallowInterceptTouchEvent(true)
+                        handleDrag(touchX, touchY, hs, cs)
+                    } else {
+                        // Moved too much without being selected → cancel
+                        cleanupTouch()
+                        return false
                     }
                 }
                 return true
@@ -233,21 +232,55 @@ class BulletJournalGridView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP -> {
                 val duration = System.currentTimeMillis() - downTime
+                val moved = abs(touchX - startX) > touchSlop || abs(touchY - startY) > touchSlop
 
-                // A tap should be quick and stay within the slop
-                // 200ms is a standard threshold for a "tap"
-                if (isPotentialTap && dragType == 0 && duration < 200) {
-                    if (downRow in 0 until numRows && downCol in 0 until numCols) {
-                        gridState[downRow][downCol] = !gridState[downRow][downCol]
+                if (!isDragging) {
+                    when {
+                        // Tap on header
+                        downHeaderType == 1 && !moved -> {
+                            if (downRow == selectedRow) {
+                                selectedRow = -1  // deselect if tapping same row
+                            } else {
+                                selectedRow = downRow
+                                selectedCol = -1
+                            }
+                        }
+                        downHeaderType == 2 && !moved -> {
+                            if (downCol == selectedCol) {
+                                selectedCol = -1
+                            } else {
+                                selectedCol = downCol
+                                selectedRow = -1
+                            }
+                        }
+                        // Long press on header (no significant movement)
+                        downHeaderType != 0 && duration >= longPressTimeout -> {
+                            val isSelected = if (downHeaderType == 1) downRow == selectedRow else downCol == selectedCol
+                            if (isSelected) {
+                                // Long press on selected → should have started drag already, but fallback
+                            } else {
+                                showHeaderMenu(downHeaderType == 2, if (downHeaderType == 1) downRow else downCol)
+                            }
+                        }
+                        // Tap on cell
+                        downRow >= 0 && downCol >= 0 && !moved -> {
+                            gridState[downRow][downCol] = !gridState[downRow][downCol]
+                            selectedRow = -1
+                            selectedCol = -1
+                        }
+                        // Tap elsewhere → clear selection
+                        else -> {
+                            selectedRow = -1
+                            selectedCol = -1
+                        }
                     }
                 }
+
                 cleanupTouch()
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                // If the ScrollView takes over, we land here.
-                // Do NOTHING but reset the UI.
                 cleanupTouch()
                 return true
             }
@@ -255,14 +288,35 @@ class BulletJournalGridView @JvmOverloads constructor(
         return false
     }
 
+    private fun handleDrag(touchX: Float, touchY: Float, hs: Float, cs: Float) {
+        val target = if (dragType == 1) {
+            ((touchY - hs + cs / 2) / cs).toInt().coerceIn(0, numRows - 1)
+        } else {
+            ((touchX - hs + cs / 2) / cs).toInt().coerceIn(0, numCols - 1)
+        }
+
+        if (target != draggedIndex) {
+            if (dragType == 1) swapRows(draggedIndex, target)
+            else swapColumns(draggedIndex, target)
+            draggedIndex = target
+
+            // Keep selection on the moved item
+            if (dragType == 1) selectedRow = target
+            else selectedCol = target
+
+            invalidate()
+        }
+    }
+
     private fun cleanupTouch() {
-        isPotentialTap = false
         isDragging = false
         dragType = 0
+        draggedIndex = -1
         pressedRow = -1
         pressedCol = -1
         downRow = -1
         downCol = -1
+        downHeaderType = 0
         invalidate()
     }
 
@@ -280,26 +334,6 @@ class BulletJournalGridView @JvmOverloads constructor(
         colHeaders.add(to, colHeaders.removeAt(from))
     }
 
-    private fun showRenameDialog(isColumn: Boolean, index: Int) {
-        val current = if (isColumn) colHeaders[index] else rowHeaders[index]
-        val input = EditText(context).apply {
-            setText(current)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.DKGRAY)
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle(if (isColumn) "Rename Column" else "Rename Row")
-            .setView(input)
-            .setPositiveButton("OK") { _, _ ->
-                val newName = input.text.toString().trim()
-                if (isColumn) colHeaders[index] = newName else rowHeaders[index] = newName
-                invalidate()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     private fun showHeaderMenu(isColumn: Boolean, index: Int) {
         val items = arrayOf("Rename", "Delete")
 
@@ -314,6 +348,28 @@ class BulletJournalGridView @JvmOverloads constructor(
             .show()
     }
 
+    private fun showRenameDialog(isColumn: Boolean, index: Int) {
+        val current = if (isColumn) colHeaders[index] else rowHeaders[index]
+        val input = EditText(context).apply {
+            setText(current)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.DKGRAY)
+        }
+
+        AlertDialog.Builder(context)
+            .setTitle(if (isColumn) "Rename Column" else "Rename Row")
+            .setView(input)
+            .setPositiveButton("OK") { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isNotEmpty()) {
+                    if (isColumn) colHeaders[index] = newName else rowHeaders[index] = newName
+                    invalidate()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     fun addRow() = insertRowAt(numRows)
     fun addColumn() = insertColumnAt(numCols)
 
@@ -321,6 +377,8 @@ class BulletJournalGridView @JvmOverloads constructor(
         numRows++
         gridState.add(position, MutableList(numCols) { false })
         rowHeaders.add(position, "Row ${position + 1}")
+        // Adjust selection if needed
+        if (selectedRow >= position) selectedRow++
         requestLayout()
         invalidate()
     }
@@ -330,6 +388,8 @@ class BulletJournalGridView @JvmOverloads constructor(
         numRows--
         gridState.removeAt(position)
         rowHeaders.removeAt(position)
+        if (selectedRow == position) selectedRow = -1
+        else if (selectedRow > position) selectedRow--
         requestLayout()
         invalidate()
     }
@@ -338,6 +398,7 @@ class BulletJournalGridView @JvmOverloads constructor(
         numCols++
         gridState.forEach { it.add(position, false) }
         colHeaders.add(position, "Col ${position + 1}")
+        if (selectedCol >= position) selectedCol++
         requestLayout()
         invalidate()
     }
@@ -347,6 +408,8 @@ class BulletJournalGridView @JvmOverloads constructor(
         numCols--
         gridState.forEach { it.removeAt(position) }
         colHeaders.removeAt(position)
+        if (selectedCol == position) selectedCol = -1
+        else if (selectedCol > position) selectedCol--
         requestLayout()
         invalidate()
     }
