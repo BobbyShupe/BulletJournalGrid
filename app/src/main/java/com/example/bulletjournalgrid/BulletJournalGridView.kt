@@ -410,10 +410,10 @@ class BulletJournalGridView @JvmOverloads constructor(
 
     fun getCurrentGridData(): GridData {
         return GridData(
-            name = "Unnamed Grid", // Will be overridden in MainActivity
+            name = "Unnamed", // will be overridden
             numRows = numRows,
             numCols = numCols,
-            gridState = gridState.map { it.toList() },           // Deep copy
+            gridState = gridState.map { it.toList() },
             colHeaders = colHeaders.toList(),
             rowHeaders = rowHeaders.toList()
         )
@@ -424,15 +424,31 @@ class BulletJournalGridView @JvmOverloads constructor(
         numCols = data.numCols
 
         gridState.clear()
-        data.gridState.forEach { row ->
-            gridState.add(row.toMutableList())
+        // Safe handling if gridState is empty or null (shouldn't be null with defaults)
+        if (data.gridState.isNotEmpty()) {
+            data.gridState.forEach { row ->
+                gridState.add(row.toMutableList())
+            }
+        } else {
+            // Create empty grid if no state provided
+            repeat(numRows) {
+                gridState.add(MutableList(numCols) { false })
+            }
         }
 
         colHeaders.clear()
-        colHeaders.addAll(data.colHeaders)
+        if (data.colHeaders.isNotEmpty()) {
+            colHeaders.addAll(data.colHeaders)
+        } else {
+            repeat(numCols) { colHeaders.add("Col ${it + 1}") }
+        }
 
         rowHeaders.clear()
-        rowHeaders.addAll(data.rowHeaders)
+        if (data.rowHeaders.isNotEmpty()) {
+            rowHeaders.addAll(data.rowHeaders)
+        } else {
+            repeat(numRows) { rowHeaders.add("Row ${it + 1}") }
+        }
 
         selectedRow = -1
         selectedCol = -1
