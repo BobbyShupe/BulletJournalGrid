@@ -413,4 +413,38 @@ class BulletJournalGridView @JvmOverloads constructor(
         requestLayout()
         invalidate()
     }
+    // === NEW: Save / Load functionality ===
+
+    fun getCurrentGridData(): GridData {
+        return GridData(
+            name = "Unnamed Grid", // Will be overridden in MainActivity
+            numRows = numRows,
+            numCols = numCols,
+            gridState = gridState.map { it.toList() },           // Deep copy
+            colHeaders = colHeaders.toList(),
+            rowHeaders = rowHeaders.toList()
+        )
+    }
+
+    fun loadGridData(data: GridData) {
+        numRows = data.numRows
+        numCols = data.numCols
+
+        gridState.clear()
+        data.gridState.forEach { row ->
+            gridState.add(row.toMutableList())
+        }
+
+        colHeaders.clear()
+        colHeaders.addAll(data.colHeaders)
+
+        rowHeaders.clear()
+        rowHeaders.addAll(data.rowHeaders)
+
+        selectedRow = -1
+        selectedCol = -1
+
+        requestLayout()
+        invalidate()
+    }
 }
