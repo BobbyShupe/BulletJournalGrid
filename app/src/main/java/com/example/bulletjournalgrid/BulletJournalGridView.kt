@@ -162,6 +162,7 @@ class BulletJournalGridView @JvmOverloads constructor(
         }
     }
 
+    // ==================== TOUCH EVENT (updated for long-press menu) ====================
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val d = resources.displayMetrics.density
         val cs = cellSizeDp * d
@@ -181,7 +182,6 @@ class BulletJournalGridView @JvmOverloads constructor(
                 isDragging = false
                 downHeaderType = 0
 
-                // Determine what was touched
                 if (touchX > hs && touchY > hs) {
                     // Grid cell
                     downCol = ((touchX - hs) / cs).toInt().coerceIn(0, numCols - 1)
@@ -211,7 +211,6 @@ class BulletJournalGridView @JvmOverloads constructor(
                     return true
                 }
 
-                // Start dragging only after long press + movement on a selected header
                 if (downHeaderType != 0 && (dx > touchSlop || dy > touchSlop)) {
                     val isSelected = if (downHeaderType == 1) downRow == selectedRow else downCol == selectedCol
 
@@ -222,7 +221,6 @@ class BulletJournalGridView @JvmOverloads constructor(
                         parent.requestDisallowInterceptTouchEvent(true)
                         handleDrag(touchX, touchY, hs, cs)
                     } else {
-                        // Moved too much without being selected → cancel
                         cleanupTouch()
                         return false
                     }
@@ -236,39 +234,28 @@ class BulletJournalGridView @JvmOverloads constructor(
 
                 if (!isDragging) {
                     when {
-                        // Tap on header
+                        // Long press on any header → show Rename / Delete menu
+                        downHeaderType != 0 && duration >= longPressTimeout -> {
+                            showHeaderMenu(downHeaderType == 2, if (downHeaderType == 1) downRow else downCol)
+                        }
+
+                        // Short tap on header → select/deselect
                         downHeaderType == 1 && !moved -> {
-                            if (downRow == selectedRow) {
-                                selectedRow = -1  // deselect if tapping same row
-                            } else {
-                                selectedRow = downRow
-                                selectedCol = -1
-                            }
+                            selectedRow = if (downRow == selectedRow) -1 else downRow
+                            selectedCol = -1
                         }
                         downHeaderType == 2 && !moved -> {
-                            if (downCol == selectedCol) {
-                                selectedCol = -1
-                            } else {
-                                selectedCol = downCol
-                                selectedRow = -1
-                            }
+                            selectedCol = if (downCol == selectedCol) -1 else downCol
+                            selectedRow = -1
                         }
-                        // Long press on header (no significant movement)
-                        downHeaderType != 0 && duration >= longPressTimeout -> {
-                            val isSelected = if (downHeaderType == 1) downRow == selectedRow else downCol == selectedCol
-                            if (isSelected) {
-                                // Long press on selected → should have started drag already, but fallback
-                            } else {
-                                showHeaderMenu(downHeaderType == 2, if (downHeaderType == 1) downRow else downCol)
-                            }
-                        }
+
                         // Tap on cell
                         downRow >= 0 && downCol >= 0 && !moved -> {
                             gridState[downRow][downCol] = !gridState[downRow][downCol]
                             selectedRow = -1
                             selectedCol = -1
                         }
-                        // Tap elsewhere → clear selection
+
                         else -> {
                             selectedRow = -1
                             selectedCol = -1
@@ -286,6 +273,48 @@ class BulletJournalGridView @JvmOverloads constructor(
             }
         }
         return false
+    }
+
+    // ==================== HEADER LONG-PRESS MENU ====================
+
+    private fun showHeaderMenu(isColumn: Boolean, index: Int) {
+        val title = if (isColumn) "Column: ${colHeaders[index]}" else "Row: ${rowHeaders[index]}"
+        val items = arrayOf("Rename", "Delete")
+
+        AlertDialog.Builder(context)
+            .setTitle(title)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> showRenameDialog(isColumn, index)
+                    1 -> if (isColumn) deleteColumnAt(index) else deleteRowAt(index)
+                }
+            }
+            .show()
+    }
+
+    private fun showRenameDialog(isColumn: Boolean, index: Int) {
+        val currentName = if (isColumn) colHeaders[index] else rowHeaders[index]
+
+        val input = EditText(context).apply {
+            setText(currentName)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#333333"))
+            setPadding(40, 40, 40, 40)
+        }
+
+        AlertDialog.Builder(context)
+            .setTitle(if (isColumn) "Rename Column" else "Rename Row")
+            .setView(input)
+            .setPositiveButton("OK") { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isNotEmpty()) {
+                    if (isColumn) colHeaders[index] = newName
+                    else rowHeaders[index] = newName
+                    invalidate()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun handleDrag(touchX: Float, touchY: Float, hs: Float, cs: Float) {
@@ -332,42 +361,6 @@ class BulletJournalGridView @JvmOverloads constructor(
             row.add(to, row.removeAt(from))
         }
         colHeaders.add(to, colHeaders.removeAt(from))
-    }
-
-    private fun showHeaderMenu(isColumn: Boolean, index: Int) {
-        val items = arrayOf("Rename", "Delete")
-
-        AlertDialog.Builder(context)
-            .setTitle(if (isColumn) "Column ${index + 1}" else "Row ${index + 1}")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> showRenameDialog(isColumn, index)
-                    1 -> if (isColumn) deleteColumnAt(index) else deleteRowAt(index)
-                }
-            }
-            .show()
-    }
-
-    private fun showRenameDialog(isColumn: Boolean, index: Int) {
-        val current = if (isColumn) colHeaders[index] else rowHeaders[index]
-        val input = EditText(context).apply {
-            setText(current)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.DKGRAY)
-        }
-
-        AlertDialog.Builder(context)
-            .setTitle(if (isColumn) "Rename Column" else "Rename Row")
-            .setView(input)
-            .setPositiveButton("OK") { _, _ ->
-                val newName = input.text.toString().trim()
-                if (newName.isNotEmpty()) {
-                    if (isColumn) colHeaders[index] = newName else rowHeaders[index] = newName
-                    invalidate()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     fun addRow() = insertRowAt(numRows)
