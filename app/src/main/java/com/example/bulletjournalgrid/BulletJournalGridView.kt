@@ -114,7 +114,7 @@ class BulletJournalGridView @JvmOverloads constructor(
         val cs = cellSizeDp * d
         val hs = headerSizeDp * d
 
-        // Selection highlight (full row or column)
+        // === Selection highlights (full row / column) ===
         if (selectedRow >= 0) {
             val top = hs + selectedRow * cs
             canvas.drawRect(0f, top, width.toFloat(), top + cs, selectionPaint)
@@ -124,14 +124,28 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.drawRect(left, 0f, left + cs, height.toFloat(), selectionPaint)
         }
 
-        // Press highlight (temporary cell press)
+        // === Press highlight ===
         if (pressedRow >= 0 && pressedCol >= 0) {
             val left = hs + pressedCol * cs
             val top = hs + pressedRow * cs
             canvas.drawRect(left, top, left + cs, top + cs, pressPaint)
         }
 
-        // Column headers
+        // === GRID LINES THAT EXTEND INTO HEADERS ===
+
+        // Vertical lines (extend through column headers)
+        for (c in 0..numCols) {
+            val x = hs + c * cs
+            canvas.drawLine(x, 0f, x, height.toFloat(), borderPaint)
+        }
+
+        // Horizontal lines (extend through row headers)
+        for (r in 0..numRows) {
+            val y = hs + r * cs
+            canvas.drawLine(0f, y, width.toFloat(), y, borderPaint)
+        }
+
+        // === Column Headers (rotated text) ===
         for (c in 0 until numCols) {
             val cx = hs + c * cs + cs / 2
             val cy = hs / 2f
@@ -141,18 +155,19 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.restore()
         }
 
-        // Row headers + cells
+        // === Row Headers + Cell content ===
         for (r in 0 until numRows) {
             val y = hs + r * cs + cs / 2
+
+            // Row header text
             canvas.drawText(rowHeaders[r], hs / 2, y + headerPaint.textSize / 3, headerPaint)
 
+            // Cells + X marks
             for (c in 0 until numCols) {
                 val left = hs + c * cs
                 val top = hs + r * cs
                 val right = left + cs
                 val bottom = top + cs
-
-                canvas.drawRect(left, top, right, bottom, borderPaint)
 
                 if (gridState[r][c]) {
                     canvas.drawLine(left, top, right, bottom, xPaint)
