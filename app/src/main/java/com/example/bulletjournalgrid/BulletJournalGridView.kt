@@ -20,7 +20,7 @@ class BulletJournalGridView @JvmOverloads constructor(
     private var numCols = 5
 
     private val cellSizeDp = 25f
-    private val headerSizeDp = 48f
+    private val headerSizeDp = 108f
 
     private val gridState = mutableListOf<MutableList<Boolean>>()
     private val colHeaders = mutableListOf<String>()
@@ -44,7 +44,7 @@ class BulletJournalGridView @JvmOverloads constructor(
 
     private val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 17f
+        textSize = 27f
         textAlign = Paint.Align.CENTER
     }
 
