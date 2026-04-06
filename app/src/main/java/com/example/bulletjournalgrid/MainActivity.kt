@@ -50,9 +50,10 @@ class MainActivity : AppCompatActivity() {
         // Button listeners
         findViewById<android.widget.Button>(R.id.btnAddRow).setOnClickListener { gridView.addRow() }
         findViewById<android.widget.Button>(R.id.btnAddColumn).setOnClickListener { gridView.addColumn() }
-        findViewById<android.widget.Button>(R.id.btnSaveGrid).setOnClickListener {
-            val newName = "Grid ${savedGrids.size + 1}"
-            saveCurrentGrid(newName)
+
+        // Changed: "New Grid" button now creates a fresh grid
+        findViewById<android.widget.Button>(R.id.btnNewGrid).setOnClickListener {
+            createNewGrid()
         }
 
         // Short tap: switch grid
@@ -66,7 +67,7 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>) {}
         }
 
-        // Long press on spinner item → Rename / Delete menu
+        // Long press on spinner → menu
         gridSpinner.setOnLongClickListener {
             val selectedPosition = gridSpinner.selectedItemPosition
             if (selectedPosition >= 0 && selectedPosition < savedGrids.size) {
@@ -102,15 +103,6 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putString(gridsKey, json).apply()
     }
 
-    private fun saveCurrentGrid(name: String) {
-        val currentData = gridView.getCurrentGridData().copy(name = name)
-        savedGrids.add(currentData)
-        currentGridIndex = savedGrids.size - 1
-        saveGridsToPrefs()
-        setupSpinner()
-        gridSpinner.setSelection(currentGridIndex)
-    }
-
     private fun loadGrid(index: Int) {
         if (index < 0 || index >= savedGrids.size) return
         currentGridIndex = index
@@ -118,17 +110,33 @@ class MainActivity : AppCompatActivity() {
         gridSpinner.setSelection(index)
     }
 
-    // Long-press menu for saved grids
+    // ==================== NEW GRID (used by both button and menu) ====================
+    private fun createNewGrid() {
+        val newName = "Grid ${savedGrids.size + 1}"
+        val newGrid = GridData(name = newName)
+
+        savedGrids.add(newGrid)
+        currentGridIndex = savedGrids.size - 1
+
+        gridView.loadGridData(newGrid)
+        saveGridsToPrefs()
+        setupSpinner()
+        gridSpinner.setSelection(currentGridIndex)
+    }
+
+    // ==================== LONG-PRESS MENU ====================
     private fun showGridOptionsMenu(position: Int, anchorView: View) {
-        val grid = savedGrids[position]
         val popup = PopupMenu(this, anchorView)
+
+        popup.menu.add("New Grid")
         popup.menu.add("Rename")
         popup.menu.add("Delete")
 
         popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.title) {
-                "Rename" -> showRenameGridDialog(position)
-                "Delete" -> showDeleteConfirmation(position)
+            when (menuItem.title.toString()) {
+                "New Grid" -> createNewGrid()
+                "Rename"   -> showRenameGridDialog(position)
+                "Delete"   -> showDeleteConfirmation(position)
             }
             true
         }
@@ -162,7 +170,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDeleteConfirmation(position: Int) {
         if (savedGrids.size <= 1) {
-            // Prevent deleting the last grid
             AlertDialog.Builder(this)
                 .setTitle("Cannot Delete")
                 .setMessage("You must keep at least one grid.")
@@ -188,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // Auto-save current grid changes when app pauses
+    // Auto-save current changes when app pauses
     override fun onPause() {
         super.onPause()
         if (currentGridIndex >= 0 && currentGridIndex < savedGrids.size) {
