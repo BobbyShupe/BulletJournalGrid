@@ -11,6 +11,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -20,12 +22,12 @@ class BulletJournalGridView @JvmOverloads constructor(
 
     private var numRows = 5
     private var numCols = 5
+    private var isDateMode = false
 
     private val cellSizeDp = 25f
 
-    // ==================== PADDING (easy to tune) ====================
     private val rowHeaderHorizontalPaddingDp = 10f
-    private val colHeaderPaddingDp = 10f          // Main padding for column header height
+    private val colHeaderPaddingDp = 10f
 
     private var colHeaderHeightDp = 120f
     private var rowHeaderWidthDp = 90f
@@ -82,6 +84,8 @@ class BulletJournalGridView @JvmOverloads constructor(
     private var pressedRow = -1
     private var pressedCol = -1
 
+    // Date format with year
+
     init {
         resetGrid()
     }
@@ -90,6 +94,7 @@ class BulletJournalGridView @JvmOverloads constructor(
         gridState.clear()
         colHeaders.clear()
         rowHeaders.clear()
+        isDateMode = false
 
         repeat(numRows) {
             gridState.add(MutableList(numCols) { false })
@@ -114,20 +119,16 @@ class BulletJournalGridView @JvmOverloads constructor(
             maxWidthPx = max(maxWidthPx, bounds.width().toFloat())
         }
         rowHeaderWidthDp = (maxWidthPx / resources.displayMetrics.density) + (rowHeaderHorizontalPaddingDp * 2)
-        rowHeaderWidthDp = max(rowHeaderWidthDp, 90f)
+        rowHeaderWidthDp = max(rowHeaderWidthDp, 100f)
     }
 
-    // FIXED: Use text WIDTH for column header height (because text is rotated -90°)
     private fun updateColHeaderHeight() {
         val bounds = Rect()
         var maxTextWidthPx = 0f
-
         for (header in colHeaders) {
             headerPaint.getTextBounds(header, 0, header.length, bounds)
             maxTextWidthPx = max(maxTextWidthPx, bounds.width().toFloat())
         }
-
-        // The rotated text needs vertical space equal to its horizontal width + padding
         colHeaderHeightDp = (maxTextWidthPx / resources.displayMetrics.density) + (colHeaderPaddingDp * 2)
         colHeaderHeightDp = max(colHeaderHeightDp, 120f)
     }
@@ -146,7 +147,6 @@ class BulletJournalGridView @JvmOverloads constructor(
         val ch = colHeaderHeightDp * d
         val rw = rowHeaderWidthDp * d
 
-        // Selection & Press
         if (selectedRow >= 0) {
             val top = ch + selectedRow * cs
             canvas.drawRect(0f, top, width.toFloat(), top + cs, selectionPaint)
@@ -162,7 +162,7 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.drawRect(left, top, left + cs, top + cs, pressPaint)
         }
 
-        // Grid lines
+        // Grid lines extending into headers
         for (c in 0..numCols) {
             val x = rw + c * cs
             canvas.drawLine(x, 0f, x, height.toFloat(), borderPaint)
@@ -190,7 +190,6 @@ class BulletJournalGridView @JvmOverloads constructor(
             for (c in 0 until numCols) {
                 val left = rw + c * cs
                 val top = ch + r * cs
-
                 if (gridState[r][c]) {
                     val right = left + cs
                     val bottom = top + cs
@@ -207,9 +206,32 @@ class BulletJournalGridView @JvmOverloads constructor(
         invalidate()
     }
 
-    // ==================== The rest of your methods (touch, drag, menu, etc.) remain the same ====================
-    // (I kept them exactly as in your last file for consistency)
+    // Toggle Date Mode
+    fun toggleDateMode() {
+        isDateMode = !isDateMode
+        refreshRowHeaders()
+        refreshHeaderDimensions()
+    }
 
+    private val dateFormatter = DateTimeFormatter.ofPattern("MM-dd-yyyy")
+
+
+    private fun refreshRowHeaders() {
+        rowHeaders.clear()
+        if (isDateMode) {
+            val today = LocalDate.now()
+            for (i in 0 until numRows) {
+                val date = today.plusDays(i.toLong())   // Today → future, continuous
+                rowHeaders.add(date.format(dateFormatter))
+            }
+        } else {
+            for (i in 0 until numRows) {
+                rowHeaders.add("Row ${i + 1}")
+            }
+        }
+    }
+
+    // ==================== TOUCH EVENT - Long press on left header shows menu ====================
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val d = resources.displayMetrics.density
         val cs = cellSizeDp * d
@@ -278,8 +300,8 @@ class BulletJournalGridView @JvmOverloads constructor(
 
                 if (!isDragging) {
                     when {
-                        downHeaderType != 0 && duration >= longPressTimeout -> {
-                            showHeaderMenu(downHeaderType == 2, if (downHeaderType == 1) downRow else downCol)
+                        downHeaderType == 1 && duration >= longPressTimeout -> {
+                            showRowHeaderMenu(downRow)
                         }
                         downHeaderType == 1 && !moved -> {
                             selectedRow = if (downRow == selectedRow) -1 else downRow
@@ -312,65 +334,21 @@ class BulletJournalGridView @JvmOverloads constructor(
         return false
     }
 
-    private fun handleDrag(touchX: Float, touchY: Float, ch: Float, cs: Float) {
-        val rw = rowHeaderWidthDp * resources.displayMetrics.density
-
-        val target = if (dragType == 1) {
-            ((touchY - ch + cs / 2) / cs).toInt().coerceIn(0, numRows - 1)
+    // Long press menu on left row header
+    private fun showRowHeaderMenu(rowIndex: Int) {
+        val items = if (isDateMode) {
+            arrayOf("Disable Date Mode", "Rename", "Delete")
         } else {
-            ((touchX - rw + cs / 2) / cs).toInt().coerceIn(0, numCols - 1)
+            arrayOf("Enable Date Mode", "Rename", "Delete")
         }
-
-        if (target != draggedIndex) {
-            if (dragType == 1) swapRows(draggedIndex, target)
-            else swapColumns(draggedIndex, target)
-            draggedIndex = target
-
-            if (dragType == 1) selectedRow = target
-            else selectedCol = target
-
-            invalidate()
-        }
-    }
-
-    private fun cleanupTouch() {
-        isDragging = false
-        dragType = 0
-        draggedIndex = -1
-        pressedRow = -1
-        pressedCol = -1
-        downRow = -1
-        downCol = -1
-        downHeaderType = 0
-        invalidate()
-    }
-
-    private fun swapRows(from: Int, to: Int) {
-        if (from == to) return
-        gridState.add(to, gridState.removeAt(from))
-        rowHeaders.add(to, rowHeaders.removeAt(from))
-        refreshHeaderDimensions()
-    }
-
-    private fun swapColumns(from: Int, to: Int) {
-        if (from == to) return
-        for (row in gridState) {
-            row.add(to, row.removeAt(from))
-        }
-        colHeaders.add(to, colHeaders.removeAt(from))
-        refreshHeaderDimensions()
-    }
-
-    private fun showHeaderMenu(isColumn: Boolean, index: Int) {
-        val title = if (isColumn) "Column: ${colHeaders[index]}" else "Row: ${rowHeaders[index]}"
-        val items = arrayOf("Rename", "Delete")
 
         AlertDialog.Builder(context)
-            .setTitle(title)
+            .setTitle(rowHeaders[rowIndex])
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> showRenameDialog(isColumn, index)
-                    1 -> if (isColumn) deleteColumnAt(index) else deleteRowAt(index)
+                    0 -> toggleDateMode()
+                    1 -> showRenameDialog(false, rowIndex)
+                    2 -> deleteRowAt(rowIndex)
                 }
             }
             .show()
@@ -402,13 +380,20 @@ class BulletJournalGridView @JvmOverloads constructor(
             .show()
     }
 
+    // ==================== Remaining methods (addRow, delete, save/load, etc.) ====================
     fun addRow() = insertRowAt(numRows)
     fun addColumn() = insertColumnAt(numCols)
 
     private fun insertRowAt(position: Int) {
         numRows++
         gridState.add(position, MutableList(numCols) { false })
-        rowHeaders.add(position, "Row ${position + 1}")
+
+        rowHeaders.add(position, if (isDateMode) {
+            LocalDate.now().plusDays(position.toLong()).format(dateFormatter)
+        } else {
+            "Row ${position + 1}"
+        })
+
         if (selectedRow >= position) selectedRow++
         refreshHeaderDimensions()
         requestLayout()
@@ -456,13 +441,15 @@ class BulletJournalGridView @JvmOverloads constructor(
             numCols = numCols,
             gridState = gridState.map { it.toList() },
             colHeaders = colHeaders.toList(),
-            rowHeaders = rowHeaders.toList()
+            rowHeaders = rowHeaders.toList(),
+            isDateMode = isDateMode
         )
     }
 
     fun loadGridData(data: GridData) {
         numRows = data.numRows
         numCols = data.numCols
+        isDateMode = data.isDateMode
 
         gridState.clear()
         if (data.gridState.isNotEmpty()) {
@@ -474,8 +461,8 @@ class BulletJournalGridView @JvmOverloads constructor(
         colHeaders.clear()
         colHeaders.addAll(if (data.colHeaders.isNotEmpty()) data.colHeaders else List(numCols) { "Col ${it + 1}" })
 
-        rowHeaders.clear()
-        rowHeaders.addAll(if (data.rowHeaders.isNotEmpty()) data.rowHeaders else List(numRows) { "Row ${it + 1}" })
+        // Re-generate dates correctly when loading
+        refreshRowHeaders()
 
         selectedRow = -1
         selectedCol = -1
@@ -483,5 +470,53 @@ class BulletJournalGridView @JvmOverloads constructor(
         refreshHeaderDimensions()
         requestLayout()
         invalidate()
+    }
+
+    private fun handleDrag(touchX: Float, touchY: Float, ch: Float, cs: Float) {
+        val rw = rowHeaderWidthDp * resources.displayMetrics.density
+        val target = if (dragType == 1) {
+            ((touchY - ch + cs / 2) / cs).toInt().coerceIn(0, numRows - 1)
+        } else {
+            ((touchX - rw + cs / 2) / cs).toInt().coerceIn(0, numCols - 1)
+        }
+
+        if (target != draggedIndex) {
+            if (dragType == 1) swapRows(draggedIndex, target)
+            else swapColumns(draggedIndex, target)
+            draggedIndex = target
+
+            if (dragType == 1) selectedRow = target
+            else selectedCol = target
+
+            invalidate()
+        }
+    }
+
+    private fun cleanupTouch() {
+        isDragging = false
+        dragType = 0
+        draggedIndex = -1
+        pressedRow = -1
+        pressedCol = -1
+        downRow = -1
+        downCol = -1
+        downHeaderType = 0
+        invalidate()
+    }
+
+    private fun swapRows(from: Int, to: Int) {
+        if (from == to) return
+        gridState.add(to, gridState.removeAt(from))
+        rowHeaders.add(to, rowHeaders.removeAt(from))
+        refreshHeaderDimensions()
+    }
+
+    private fun swapColumns(from: Int, to: Int) {
+        if (from == to) return
+        for (row in gridState) {
+            row.add(to, row.removeAt(from))
+        }
+        colHeaders.add(to, colHeaders.removeAt(from))
+        refreshHeaderDimensions()
     }
 }

@@ -129,12 +129,14 @@ class MainActivity : AppCompatActivity() {
         val popup = PopupMenu(this, anchorView)
 
         popup.menu.add("New Grid")
+        popup.menu.add("Toggle Date Mode")   // ← Added
         popup.menu.add("Rename")
         popup.menu.add("Delete")
 
         popup.setOnMenuItemClickListener { menuItem ->
             when (menuItem.title.toString()) {
                 "New Grid" -> createNewGrid()
+                "Toggle Date Mode" -> gridView.toggleDateMode()
                 "Rename"   -> showRenameGridDialog(position)
                 "Delete"   -> showDeleteConfirmation(position)
             }
