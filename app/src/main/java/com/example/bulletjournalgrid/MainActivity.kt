@@ -105,6 +105,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadGrid(index: Int) {
         if (index < 0 || index >= savedGrids.size) return
+
+        // === CRITICAL FIX: Save current grid before switching ===
+        saveCurrentGridIfNeeded()
+
+        // Now load the new grid
         currentGridIndex = index
         gridView.loadGridData(savedGrids[index])
         gridSpinner.setSelection(index)
@@ -112,6 +117,7 @@ class MainActivity : AppCompatActivity() {
 
     // ==================== NEW GRID (used by both button and menu) ====================
     private fun createNewGrid() {
+        saveCurrentGridIfNeeded()
         val newName = "Grid ${savedGrids.size + 1}"
         val newGrid = GridData(name = newName)
 
@@ -203,6 +209,18 @@ class MainActivity : AppCompatActivity() {
                 name = savedGrids[currentGridIndex].name
             )
             saveGridsToPrefs()
+        }
+        saveCurrentGridIfNeeded()
+    }
+
+    private fun saveCurrentGridIfNeeded() {
+        if (currentGridIndex >= 0 && currentGridIndex < savedGrids.size) {
+            val currentData = gridView.getCurrentGridData()
+
+            // Preserve the original name (don't overwrite it with "Unnamed")
+            savedGrids[currentGridIndex] = currentData.copy(
+                name = savedGrids[currentGridIndex].name
+            )
         }
     }
 }
