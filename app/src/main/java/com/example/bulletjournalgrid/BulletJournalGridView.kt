@@ -11,6 +11,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -27,12 +29,13 @@ class BulletJournalGridView @JvmOverloads constructor(
 
     private val cellSizeDp = 25f
 
-    // ==================== PADDING (easy to tune) ====================
     private val rowHeaderHorizontalPaddingDp = 10f
-    private val colHeaderPaddingDp = 10f          // Main padding for column header height
+    private val colHeaderPaddingDp = 10f
 
     private var colHeaderHeightDp = 120f
     private var rowHeaderWidthDp = 90f
+
+    private var bottomInsetPx = 0
 
     private val gridState = mutableListOf<MutableList<Boolean>>()
     private val colHeaders = mutableListOf<String>()
@@ -87,6 +90,15 @@ class BulletJournalGridView @JvmOverloads constructor(
     private var pressedCol = -1
 
     init {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            bottomInsetPx = insets.bottom
+            view.setPadding(0, 0, 0, bottomInsetPx)
+            view.requestLayout()
+            view.invalidate()
+            WindowInsetsCompat.CONSUMED
+        }
+
         resetGrid()
     }
 
@@ -121,17 +133,13 @@ class BulletJournalGridView @JvmOverloads constructor(
         rowHeaderWidthDp = max(rowHeaderWidthDp, 90f)
     }
 
-    // FIXED: Use text WIDTH for column header height (because text is rotated -90°)
     private fun updateColHeaderHeight() {
         val bounds = Rect()
         var maxTextWidthPx = 0f
-
         for (header in colHeaders) {
             headerPaint.getTextBounds(header, 0, header.length, bounds)
             maxTextWidthPx = max(maxTextWidthPx, bounds.width().toFloat())
         }
-
-        // The rotated text needs vertical space equal to its horizontal width + padding
         colHeaderHeightDp = (maxTextWidthPx / resources.displayMetrics.density) + (colHeaderPaddingDp * 2)
         colHeaderHeightDp = max(colHeaderHeightDp, 120f)
     }
@@ -145,19 +153,29 @@ class BulletJournalGridView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
         val d = resources.displayMetrics.density
         val cs = cellSizeDp * d
         val ch = colHeaderHeightDp * d
         val rw = rowHeaderWidthDp * d
 
+        val safeHeight = height.toFloat() - bottomInsetPx
+
+        // Strict clipping — nothing can draw below safeHeight
+        canvas.save()
+        canvas.clipRect(0f, 0f, width.toFloat(), safeHeight)
+
         // Selection & Press
         if (selectedRow >= 0) {
             val top = ch + selectedRow * cs
-            canvas.drawRect(0f, top, width.toFloat(), top + cs, selectionPaint)
+            val bottom = (top + cs).coerceAtMost(safeHeight)
+            if (top < safeHeight) {
+                canvas.drawRect(0f, top, width.toFloat(), bottom, selectionPaint)
+            }
         }
         if (selectedCol >= 0) {
             val left = rw + selectedCol * cs
-            canvas.drawRect(left, 0f, left + cs, height.toFloat(), selectionPaint)
+            canvas.drawRect(left, 0f, left + cs, safeHeight, selectionPaint)
         }
 
         if (pressedRow >= 0 && pressedCol >= 0) {
@@ -166,17 +184,21 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.drawRect(left, top, left + cs, top + cs, pressPaint)
         }
 
-        // Grid lines
+        // Vertical lines — clamped
         for (c in 0..numCols) {
             val x = rw + c * cs
-            canvas.drawLine(x, 0f, x, height.toFloat(), borderPaint)
-        }
-        for (r in 0..numRows) {
-            val y = ch + r * cs
-            canvas.drawLine(0f, y, width.toFloat(), y, borderPaint)
+            canvas.drawLine(x, 0f, x, safeHeight, borderPaint)
         }
 
-        // Column headers (rotated)
+        // Horizontal lines — only if within safe area
+        for (r in 0..numRows) {
+            val y = ch + r * cs
+            if (y <= safeHeight) {
+                canvas.drawLine(0f, y, width.toFloat(), y, borderPaint)
+            }
+        }
+
+        // Column headers
         for (c in 0 until numCols) {
             val cx = rw + c * cs + cs / 2
             val cy = ch / 2f
@@ -186,33 +208,32 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.restore()
         }
 
-        // Row headers + cells
+        // Row headers + cells (X marks)
         for (r in 0 until numRows) {
-            val y = ch + r * cs + cs / 2
-            canvas.drawText(rowHeaders[r], rw / 2, y + headerPaint.textSize / 3, headerPaint)
+            val cellTop = ch + r * cs
+            if (cellTop >= safeHeight) continue
+
+            val textY = cellTop + cs / 2
+            canvas.drawText(rowHeaders[r], rw / 2, textY + headerPaint.textSize / 3, headerPaint)
 
             for (c in 0 until numCols) {
                 val left = rw + c * cs
-                val top = ch + r * cs
+                val top = cellTop
+                val bottom = (top + cs).coerceAtMost(safeHeight)
 
                 if (gridState[r][c]) {
                     val right = left + cs
-                    val bottom = top + cs
                     canvas.drawLine(left, top, right, bottom, xPaint)
                     canvas.drawLine(left, bottom, right, top, xPaint)
                 }
             }
         }
+
+        canvas.restore()
     }
 
-    private fun refreshHeaderDimensions() {
-        updateHeaderDimensions()
-        requestLayout()
-        invalidate()
-    }
-
-    // ==================== The rest of your methods (touch, drag, menu, etc.) remain the same ====================
-    // (I kept them exactly as in your last file for consistency)
+    // ==================== Touch, drag, add/delete, load/save methods (unchanged) ====================
+    // (Copy-paste all the methods below from your previous working version — they are the same)
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val d = resources.displayMetrics.density
@@ -234,7 +255,9 @@ class BulletJournalGridView @JvmOverloads constructor(
                 isDragging = false
                 downHeaderType = 0
 
-                if (touchX > rw && touchY > ch) {
+                val safeHeight = height.toFloat() - bottomInsetPx
+
+                if (touchX > rw && touchY > ch && touchY < safeHeight) {
                     downCol = ((touchX - rw) / cs).toInt().coerceIn(0, numCols - 1)
                     downRow = ((touchY - ch) / cs).toInt().coerceIn(0, numRows - 1)
                     pressedRow = downRow
@@ -242,7 +265,7 @@ class BulletJournalGridView @JvmOverloads constructor(
                 } else if (touchY < ch && touchX > rw) {
                     downCol = ((touchX - rw) / cs).toInt().coerceIn(0, numCols - 1)
                     downHeaderType = 2
-                } else if (touchX < rw && touchY > ch) {
+                } else if (touchX < rw && touchY > ch && touchY < safeHeight) {
                     downRow = ((touchY - ch) / cs).toInt().coerceIn(0, numRows - 1)
                     downHeaderType = 1
                 }
@@ -276,7 +299,7 @@ class BulletJournalGridView @JvmOverloads constructor(
                 return true
             }
 
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val duration = System.currentTimeMillis() - downTime
                 val moved = abs(touchX - startX) > touchSlop || abs(touchY - startY) > touchSlop
 
@@ -304,11 +327,6 @@ class BulletJournalGridView @JvmOverloads constructor(
                         }
                     }
                 }
-                cleanupTouch()
-                return true
-            }
-
-            MotionEvent.ACTION_CANCEL -> {
                 cleanupTouch()
                 return true
             }
@@ -485,6 +503,12 @@ class BulletJournalGridView @JvmOverloads constructor(
         selectedCol = -1
 
         refreshHeaderDimensions()
+        requestLayout()
+        invalidate()
+    }
+
+    private fun refreshHeaderDimensions() {
+        updateHeaderDimensions()
         requestLayout()
         invalidate()
     }

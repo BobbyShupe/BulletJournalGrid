@@ -12,6 +12,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import android.widget.EditText
 import android.graphics.Color
+import androidx.core.view.WindowCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -29,6 +30,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Important for proper inset reporting on modern Android
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         setContentView(R.layout.activity_main)
 
         gridView = findViewById(R.id.gridView)
@@ -47,16 +52,13 @@ class MainActivity : AppCompatActivity() {
 
         setupSpinner()
 
-        // Button listeners
         findViewById<android.widget.Button>(R.id.btnAddRow).setOnClickListener { gridView.addRow() }
         findViewById<android.widget.Button>(R.id.btnAddColumn).setOnClickListener { gridView.addColumn() }
 
-        // Changed: "New Grid" button now creates a fresh grid
         findViewById<android.widget.Button>(R.id.btnNewGrid).setOnClickListener {
             createNewGrid()
         }
 
-        // Short tap: switch grid
         gridSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
                 if (position != currentGridIndex && position < savedGrids.size) {
@@ -67,7 +69,6 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>) {}
         }
 
-        // Long press on spinner → menu
         gridSpinner.setOnLongClickListener {
             val selectedPosition = gridSpinner.selectedItemPosition
             if (selectedPosition >= 0 && selectedPosition < savedGrids.size) {
@@ -76,6 +77,8 @@ class MainActivity : AppCompatActivity() {
             true
         }
     }
+
+    // ... (the rest of the file remains exactly the same as in the previous full version I provided)
 
     private fun setupSpinner() {
         val names = savedGrids.map { it.name }
@@ -105,35 +108,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadGrid(index: Int) {
         if (index < 0 || index >= savedGrids.size) return
-
-        // === CRITICAL FIX: Save current grid before switching ===
         saveCurrentGridIfNeeded()
-
-        // Now load the new grid
         currentGridIndex = index
         gridView.loadGridData(savedGrids[index])
         gridSpinner.setSelection(index)
     }
 
-    // ==================== NEW GRID (used by both button and menu) ====================
     private fun createNewGrid() {
         saveCurrentGridIfNeeded()
         val newName = "Grid ${savedGrids.size + 1}"
         val newGrid = GridData(name = newName)
-
         savedGrids.add(newGrid)
         currentGridIndex = savedGrids.size - 1
-
         gridView.loadGridData(newGrid)
         saveGridsToPrefs()
         setupSpinner()
         gridSpinner.setSelection(currentGridIndex)
     }
 
-    // ==================== LONG-PRESS MENU ====================
     private fun showGridOptionsMenu(position: Int, anchorView: View) {
         val popup = PopupMenu(this, anchorView)
-
         popup.menu.add("New Grid")
         popup.menu.add("Rename")
         popup.menu.add("Delete")
@@ -201,7 +195,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // Auto-save current changes when app pauses
     override fun onPause() {
         super.onPause()
         if (currentGridIndex >= 0 && currentGridIndex < savedGrids.size) {
@@ -216,8 +209,6 @@ class MainActivity : AppCompatActivity() {
     private fun saveCurrentGridIfNeeded() {
         if (currentGridIndex >= 0 && currentGridIndex < savedGrids.size) {
             val currentData = gridView.getCurrentGridData()
-
-            // Preserve the original name (don't overwrite it with "Unnamed")
             savedGrids[currentGridIndex] = currentData.copy(
                 name = savedGrids[currentGridIndex].name
             )
