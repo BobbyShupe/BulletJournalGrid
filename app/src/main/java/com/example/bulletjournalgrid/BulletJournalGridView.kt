@@ -159,9 +159,9 @@ class BulletJournalGridView @JvmOverloads constructor(
         val ch = colHeaderHeightDp * d
         val rw = rowHeaderWidthDp * d
 
-        val safeHeight = height.toFloat() - bottomInsetPx
+        // Safe height with extra margin to prevent line bleed (strokeWidth is 1.8f)
+        val safeHeight = height.toFloat() - bottomInsetPx - 5f   // extra 2px safety margin
 
-        // Strict clipping — nothing can draw below safeHeight
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), safeHeight)
 
@@ -184,13 +184,13 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.drawRect(left, top, left + cs, top + cs, pressPaint)
         }
 
-        // Vertical lines — clamped
+        // Vertical grid lines — now with tighter bound
         for (c in 0..numCols) {
             val x = rw + c * cs
             canvas.drawLine(x, 0f, x, safeHeight, borderPaint)
         }
 
-        // Horizontal lines — only if within safe area
+        // Horizontal grid lines
         for (r in 0..numRows) {
             val y = ch + r * cs
             if (y <= safeHeight) {
@@ -198,7 +198,7 @@ class BulletJournalGridView @JvmOverloads constructor(
             }
         }
 
-        // Column headers
+        // Column headers (rotated)
         for (c in 0 until numCols) {
             val cx = rw + c * cs + cs / 2
             val cy = ch / 2f
@@ -208,7 +208,7 @@ class BulletJournalGridView @JvmOverloads constructor(
             canvas.restore()
         }
 
-        // Row headers + cells (X marks)
+        // Row headers + cells
         for (r in 0 until numRows) {
             val cellTop = ch + r * cs
             if (cellTop >= safeHeight) continue
@@ -231,9 +231,6 @@ class BulletJournalGridView @JvmOverloads constructor(
 
         canvas.restore()
     }
-
-    // ==================== Touch, drag, add/delete, load/save methods (unchanged) ====================
-    // (Copy-paste all the methods below from your previous working version — they are the same)
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val d = resources.displayMetrics.density
