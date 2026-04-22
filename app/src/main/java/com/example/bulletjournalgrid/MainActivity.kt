@@ -21,6 +21,7 @@ class MainActivity : AppCompatActivity() {
 
     private val savedGrids = mutableListOf<GridData>()
     private var currentGridIndex = -1
+    private var isRebuildingSpinner = false
 
     private val gson = Gson()
     private val prefs by lazy {
@@ -31,7 +32,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Important for proper inset reporting on modern Android
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContentView(R.layout.activity_main)
@@ -61,11 +61,10 @@ class MainActivity : AppCompatActivity() {
 
         gridSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
-                if (position != currentGridIndex && position < savedGrids.size) {
+                if (!isRebuildingSpinner && position != currentGridIndex && position < savedGrids.size) {
                     loadGrid(position)
                 }
             }
-
             override fun onNothingSelected(parent: AdapterView<*>) {}
         }
 
@@ -77,8 +76,6 @@ class MainActivity : AppCompatActivity() {
             true
         }
     }
-
-    // ... (the rest of the file remains exactly the same as in the previous full version I provided)
 
     private fun setupSpinner() {
         val names = savedGrids.map { it.name }
@@ -111,7 +108,7 @@ class MainActivity : AppCompatActivity() {
         saveCurrentGridIfNeeded()
         currentGridIndex = index
         gridView.loadGridData(savedGrids[index])
-        gridSpinner.setSelection(index)
+        gridSpinner.setSelection(index, false)  // prevent recursive call
     }
 
     private fun createNewGrid() {
@@ -155,13 +152,22 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Rename Grid")
             .setView(input)
-            .setPositiveButton("OK") { _, _ ->
-                val newName = input.text.toString().trim()
-                if (newName.isNotEmpty() && newName != currentName) {
-                    savedGrids[position] = savedGrids[position].copy(name = newName)
-                    saveGridsToPrefs()
-                    setupSpinner()
-                    gridSpinner.setSelection(position)
+            .setPositiveButton("Delete") { _, _ ->
+                val wasCurrent = position == currentGridIndex
+                savedGrids.removeAt(position)
+                saveGridsToPrefs()
+                if (wasCurrent) {
+                    currentGridIndex = (position - 1).coerceAtLeast(0)
+                } else if (currentGridIndex > position) {
+                    currentGridIndex--
+                }
+
+                setupSpinner()
+
+                if (savedGrids.isNotEmpty()) {
+                    val nextGrid = savedGrids[currentGridIndex]
+                    gridView.loadGridData(nextGrid) // Directly load to bypass saveCurrentGridIfNeeded logic loop
+                    gridSpinner.setSelection(currentGridIndex, false)
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -182,14 +188,26 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Delete Grid")
             .setMessage("Delete \"${savedGrids[position].name}\" permanently?")
             .setPositiveButton("Delete") { _, _ ->
+                isRebuildingSpinner = true
+
+                val wasCurrent = position == currentGridIndex
                 savedGrids.removeAt(position)
+
+                if (wasCurrent) {
+                    currentGridIndex = (position - 1).coerceAtLeast(0)
+                } else if (currentGridIndex > position) {
+                    currentGridIndex--
+                }
+
+                setupSpinner()
+                gridSpinner.setSelection(currentGridIndex)
+
+                val survivingGrid = savedGrids[currentGridIndex]
+                gridView.loadGridData(survivingGrid)
+
                 saveGridsToPrefs()
 
-                if (currentGridIndex >= position) {
-                    currentGridIndex = (currentGridIndex - 1).coerceAtLeast(0)
-                }
-                loadGrid(currentGridIndex)
-                setupSpinner()
+                isRebuildingSpinner = false
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -197,12 +215,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        if (currentGridIndex >= 0 && currentGridIndex < savedGrids.size) {
-            savedGrids[currentGridIndex] = gridView.getCurrentGridData().copy(
-                name = savedGrids[currentGridIndex].name
-            )
-            saveGridsToPrefs()
-        }
         saveCurrentGridIfNeeded()
     }
 
@@ -212,6 +224,7 @@ class MainActivity : AppCompatActivity() {
             savedGrids[currentGridIndex] = currentData.copy(
                 name = savedGrids[currentGridIndex].name
             )
+            saveGridsToPrefs()
         }
     }
 }
