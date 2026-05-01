@@ -13,6 +13,10 @@ import com.google.gson.reflect.TypeToken
 import android.widget.EditText
 import android.graphics.Color
 import androidx.core.view.WindowCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.collections.List
 
 class MainActivity : AppCompatActivity() {
 
@@ -136,12 +140,14 @@ class MainActivity : AppCompatActivity() {
     private fun showGridOptionsMenu(position: Int, anchorView: View) {
         val popup = PopupMenu(this, anchorView)
         popup.menu.add("New Grid")
+        popup.menu.add("Duplicate")
         popup.menu.add("Rename")
         popup.menu.add("Delete")
 
         popup.setOnMenuItemClickListener { menuItem ->
             when (menuItem.title.toString()) {
                 "New Grid" -> createNewGrid()
+                "Duplicate" -> duplicateGrid(position)
                 "Rename"   -> showRenameGridDialog(position)
                 "Delete"   -> showDeleteConfirmation(position)
             }
@@ -196,23 +202,16 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Delete Grid")
             .setMessage("Delete \"${savedGrids[position].name}\" permanently?")
             .setPositiveButton("Delete") { _, _ ->
-                val wasCurrent = position == currentGridIndex
-
                 savedGrids.removeAt(position)
+                currentGridIndex = currentGridIndex.coerceAtMost(savedGrids.size - 1)
                 saveGridsToPrefs()
-
-                if (wasCurrent) {
-                    currentGridIndex = (currentGridIndex - 1).coerceAtLeast(0)
-                } else if (currentGridIndex > position) {
-                    currentGridIndex--
-                }
-
-                if (savedGrids.isNotEmpty()) {
-                    loadGrid(currentGridIndex)
-                }
-
                 setupSpinner()
-                gridSpinner.setSelection(currentGridIndex)
+                if (savedGrids.isNotEmpty()) {
+                    val nextGrid = savedGrids[currentGridIndex]
+                    gridView.loadGridData(nextGrid) // Force refresh visuals[cite: 3]
+                    gridSpinner.setSelection(currentGridIndex, false) // Sync spinner[cite: 3]
+                    prefs.edit().putInt(currentGridKey, currentGridIndex).apply()
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -232,4 +231,34 @@ class MainActivity : AppCompatActivity() {
             saveGridsToPrefs()
         }
     }
+    private fun duplicateGrid(position: Int) {
+        if (position !in savedGrids.indices) return
+        saveCurrentGridIfNeeded()
+        val original = savedGrids[position]
+        val dateFormat = SimpleDateFormat("MM-dd-YYYY", Locale.getDefault())
+        val currentDateString = dateFormat.format(Date())
+
+        // 3. Clear check data: Create a fresh state with only 1 row
+        val clearedGridState = listOf(List(original.numCols) { false })
+        val truncatedRowHeaders = if (original.rowHeaders.isNotEmpty()) {
+            listOf(original.rowHeaders[0])
+        } else {
+            listOf("Item 1")
+        }
+        val duplicatedGrid = GridData(
+            name = "${original.name} Copy",
+            numRows = 1,
+            numCols = original.numCols,
+            gridState = clearedGridState,
+            colHeaders = ArrayList(original.colHeaders),
+            rowHeaders = listOf(currentDateString)
+        )
+        savedGrids.add(duplicatedGrid)
+        currentGridIndex = savedGrids.lastIndex
+        saveGridsToPrefs()
+        setupSpinner()
+        gridView.loadGridData(savedGrids[currentGridIndex])
+        gridSpinner.setSelection(currentGridIndex, false)
+    }
 }
+
